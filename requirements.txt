@@ -2,7 +2,6 @@ openai
 openai-whisper
 pyaudio
 pynput
-keyboard
-argparse
 rumps
 numpy
+faster-whisper

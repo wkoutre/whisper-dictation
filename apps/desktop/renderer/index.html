@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Whisper Dictation</title>
+    <style>
+      :root {
+        --bg: #0b1016;
+        --panel: #121923;
+        --text: #e6edf3;
+        --muted: #9aa7b2;
+        --primary: #2f81f7;
+        --success: #2ea043;
+        --danger: #f85149;
+        --border: #233043;
+      }
+      * { box-sizing: border-box; }
+      body { font-family: ui-sans-serif, -apple-system, system-ui, Segoe UI, Roboto, Helvetica, Arial; margin: 0; background: var(--bg); color: var(--text); }
+      .app { max-width: 960px; margin: 0 auto; padding: 16px 20px 40px; }
+      header { display: flex; align-items: center; justify-content: space-between; padding: 12px 0 16px; }
+      .brand { font-weight: 600; font-size: 20px; }
+      .status { color: var(--muted); }
+      .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+      .row { display: flex; gap: 12px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+      .field { display: flex; gap: 8px; align-items: center; }
+      .spacer { flex: 1; }
+      label { color: var(--muted); }
+      .input { background: #0e1621; color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; height: 36px; }
+      select.input { height: 36px; }
+      .btn { border: 1px solid var(--border); background: #0f1722; color: var(--text); padding: 8px 12px; border-radius: 8px; cursor: pointer; height: 36px; display: inline-flex; align-items: center; gap: 8px; }
+      .btn:hover { filter: brightness(1.1); }
+      .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+      .btn.primary { background: #0f1b2e; border-color: #1f3b6e; color: #cfe1ff; }
+      .btn.success { background: #0f2e1b; border-color: #1e5e3a; color: #c6f6d5; }
+      .btn.danger { background: #2e0f14; border-color: #6e1f2b; color: #ffd1d6; }
+      .btn.subtle { background: #0f1722; color: var(--muted); }
+      .textarea { width: 100%; height: 220px; background: #0e1621; border: 1px solid var(--border); border-radius: 8px; color: var(--text); padding: 10px; }
+      .log { height: 200px; overflow: auto; background: #0b111a; border: 1px solid var(--border); border-radius: 8px; color: #9ef59e; padding: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+      .spinner { width: 14px; height: 14px; border: 2px solid #3a4a66; border-top-color: var(--primary); border-radius: 50%; animation: spin 1s linear infinite; }
+      .hidden { display: none; }
+      .kbd { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: #0b111a; border: 1px solid var(--border); padding: 4px 6px; border-radius: 6px; color: var(--muted); }
+      .hotkey { display: inline-flex; align-items: center; gap: 8px; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <header>
+        <div class="brand">Whisper Dictation</div>
+        <div id="status" class="status">Idle</div>
+      </header>
+
+      <section class="panel">
+        <div class="row">
+          <div class="field">
+            <label>Model</label>
+            <select id="model" class="input">
+        <option>tiny</option>
+        <option>tiny.en</option>
+        <option>base</option>
+        <option>base.en</option>
+        <option selected>small.en</option>
+        <option>small</option>
+        <option>medium</option>
+        <option>medium.en</option>
+        <option>large</option>
+        <option>large-v3</option>
+      </select>
+          </div>
+          <div class="field">
+            <label>Language</label>
+            <input id="language" class="input" value="en" />
+          </div>
+          <div class="spacer"></div>
+          <button id="load" class="btn primary">
+            <span id="load-text">Load Model</span>
+            <span id="spinner" class="spinner hidden"></span>
+          </button>
+        </div>
+
+        <div class="row">
+          <button id="start" class="btn success">Start</button>
+          <button id="stop" class="btn danger">Stop</button>
+          <div class="spacer"></div>
+          <div class="hotkey">
+            <label>Hotkey</label>
+            <button id="record-hotkey" class="btn">Set…</button>
+            <span id="hotkey-display" class="kbd"></span>
+            <button id="clear-hotkey" class="btn subtle">Clear</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <label>Transcript</label>
+        <textarea id="transcript" class="textarea" placeholder="Transcript will appear here..."></textarea>
+      </section>
+
+      <section class="panel">
+        <label>Logs</label>
+        <div id="log" class="log"></div>
+      </section>
+    </div>
+
+    <script>
+      const logEl = document.getElementById('log');
+      const statusEl = document.getElementById('status');
+      const loadBtn = document.getElementById('load');
+      const loadText = document.getElementById('load-text');
+      const spinner = document.getElementById('spinner');
+      const startBtn = document.getElementById('start');
+      const stopBtn = document.getElementById('stop');
+      const hotkeyDisplay = document.getElementById('hotkey-display');
+      const recordHotkeyBtn = document.getElementById('record-hotkey');
+      const clearHotkeyBtn = document.getElementById('clear-hotkey');
+      const transcriptEl = document.getElementById('transcript');
+      const modelSel = document.getElementById('model');
+      const langInput = document.getElementById('language');
+      function log(line) { logEl.textContent += line + '\n'; logEl.scrollTop = logEl.scrollHeight; }
+
+      let modelLoaded = false;
+      let isLoading = false;
+      let isRunning = false;
+
+      function setLoading(v) {
+        isLoading = v;
+        spinner.classList.toggle('hidden', !v);
+        loadText.textContent = v ? 'Loading…' : 'Load Model';
+        loadBtn.disabled = v;
+        updateEnablement();
+      }
+      function setModelLoaded(v) {
+        modelLoaded = v;
+        updateEnablement();
+      }
+      function setRunning(v) {
+        isRunning = v;
+        updateEnablement();
+      }
+      function updateEnablement() {
+        startBtn.disabled = !modelLoaded || isLoading || isRunning;
+        stopBtn.disabled = !modelLoaded || isLoading || !isRunning;
+      }
+
+      const progressBar = document.createElement('div');
+      progressBar.style.height = '4px';
+      progressBar.style.background = 'linear-gradient(90deg, var(--primary), #7aa7ff)';
+      progressBar.style.width = '0%';
+      progressBar.style.borderRadius = '999px';
+      progressBar.style.transition = 'width .2s ease';
+      const progressWrap = document.createElement('div');
+      progressWrap.style.height = '4px';
+      progressWrap.style.background = '#0b111a';
+      progressWrap.style.border = '1px solid var(--border)';
+      progressWrap.style.borderRadius = '999px';
+      progressWrap.style.marginTop = '8px';
+      progressWrap.appendChild(progressBar);
+      document.querySelector('section.panel .row').appendChild(progressWrap);
+
+api.onEvent((evt) => {
+        if (evt.event === 'log' || evt.event === 'stderr') {
+          log(`[${evt.event}] ${evt.data}`);
+        } else if (evt.event === 'loading') {
+          statusEl.textContent = `Loading model: ${evt.model_name}`;
+          setLoading(true);
+          setModelLoaded(false);
+          log(`Loading model: ${evt.model_name}`);
+        } else if (evt.event === 'progress') {
+          const pct = Math.max(0, Math.min(100, Number(evt.percent || 0)));
+          progressBar.style.width = pct + '%';
+          log(`[progress] ${pct}% ${evt.message || ''}`.trim());
+        } else if (evt.event === 'ready') {
+          log('Python server ready');
+        } else if (evt.event === 'loaded') {
+          setLoading(false);
+          progressBar.style.width = '100%';
+setTimeout(() => { progressBar.style.width = '0%'; }, 600);
+          setModelLoaded(true);
+          statusEl.textContent = `Ready (${evt.model_name})`;
+          log(`Model loaded: ${evt.model_name}`);
+        } else if (evt.event === 'started') {
+          setRunning(true);
+          statusEl.textContent = 'Listening…';
+          log('Recording started');
+        } else if (evt.event === 'stopped') {
+          setRunning(false);
+          statusEl.textContent = 'Transcribing…';
+          log('Recording stopped');
+        } else if (evt.event === 'transcribed') {
+          log('Transcription completed');
+        } else if (evt.event === 'transcript') {
+          transcriptEl.value = (transcriptEl.value ? (transcriptEl.value + '\n') : '') + evt.text;
+          log('Transcript received');
+        } else if (evt.event === 'pref:model') {
+          modelSel.value = evt.value;
+        } else if (evt.event === 'pref:language') {
+          langInput.value = evt.value;
+        } else if (evt.event === 'pref:hotkey') {
+          hotkeyDisplay.textContent = evt.value;
+        } else {
+          log(JSON.stringify(evt));
+        }
+      });
+
+      document.getElementById('load').onclick = async () => {
+        if (isLoading) return;
+        const model = document.getElementById('model').value;
+        setLoading(true);
+        setModelLoaded(false);
+        await api.load({ model_name: model });
+      };
+
+      document.getElementById('start').onclick = async () => {
+        if (!modelLoaded || isLoading || isRunning) return;
+        const language = document.getElementById('language').value;
+        await api.start({ language });
+      };
+
+      document.getElementById('stop').onclick = async () => {
+        if (!modelLoaded || isLoading || !isRunning) return;
+        await api.stop();
+      };
+      // Hotkey recording
+      function accelFromEvent(e) {
+        const mods = [];
+        if (e.metaKey) mods.push('Command');
+        if (e.ctrlKey) mods.push('Control');
+        if (e.altKey) mods.push('Alt');
+        if (e.shiftKey) mods.push('Shift');
+        const key = e.code.startsWith('Key') ? e.code.slice(3) :
+                    e.code.startsWith('Digit') ? e.code.slice(5) : e.key.toUpperCase();
+        // Avoid pure modifier shortcuts; require a main key
+        if (!key || key === 'META' || key === 'CONTROL' || key === 'ALT' || key === 'SHIFT') return null;
+        const acc = [...mods, key.length === 1 ? key.toUpperCase() : key].join('+');
+        return acc;
+      }
+
+      function displayAccel(acc) {
+        hotkeyDisplay.textContent = acc || '';
+      }
+
+recordHotkeyBtn.onclick = () => {
+        recordHotkeyBtn.textContent = 'Press keys…';
+const onKeyDown = async (e) => {
+          e.preventDefault();
+          const acc = accelFromEvent(e);
+          if (!acc) return;
+          recordHotkeyBtn.textContent = 'Set…';
+          document.removeEventListener('keydown', onKeyDown, true);
+          displayAccel(acc);
+          const language = document.getElementById('language').value;
+          const ok = await api.setHotkey(acc, language);
+          if (!ok) {
+            log('Failed to register hotkey');
+          }
+        };
+        document.addEventListener('keydown', onKeyDown, true);
+      };
+
+clearHotkeyBtn.onclick = async () => {
+        await api.clearHotkey();
+        displayAccel('');
+      };
+
+      // Initialize UI state
+      updateEnablement();
+    </script>
+  </body>
+</html>
+

@@ -40,10 +40,16 @@ pip install -r requirements.txt
 ```
 
 ## Usage
-Run the application:
+Run the application (menu bar CLI):
 
 ```bash
 python whisper-dictation.py
+```
+
+Run the core server (for Electron integration):
+
+```bash
+python -m whisper_dictation_core.server
 ```
 
 By default, the app uses the "base" Whisper ASR model and the key combination to toggle dictation is cmd+option on macOS and ctrl+alt on other platforms. You can change the model and the key combination using command-line arguments.  Note that models other than `tiny` and `base` can be slow to transcribe and are not recommended unless you're using a powerful computer, ideally one with a CUDA-enabled GPU. For example:

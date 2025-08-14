@@ -1,1 +1,6 @@
 venv/
+.venv/
+apps/desktop/node_modules/
+apps/desktop/dist/
+apps/desktop/out/
+apps/desktop/*.log
